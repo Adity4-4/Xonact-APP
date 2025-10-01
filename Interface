@@ -170,3 +170,35 @@ const Explore = () => {
 };
 
 export default Explore;
+
+
+// src/App.js (updated)
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Login from './components/Login';
+import Home from './components/Home';
+import Profile from './components/Profile';
+import Booking from './components/Booking';
+import VideoCall from './components/VideoCall';
+import Wallet from './components/Wallet';
+import Header from './components/Header';
+import Explore from './components/Explore'; // Add this import
+
+function App() {
+  return (
+    <Router>
+      <Header />
+      <Routes>
+        <Route path="/" element={<Login />} />
+        <Route path="/home" element={<Home />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/booking/:providerId" element={<Booking />} />
+        <Route path="/video-call/:callId" element={<VideoCall />} />
+        <Route path="/wallet" element={<Wallet />} />
+        <Route path="/explore" element={<Explore />} /> {/* Add this route */}
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;
