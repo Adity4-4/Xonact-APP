@@ -1,0 +1,172 @@
+// First, install additional dependencies:
+// npm install react-insta-stories moment
+
+// src/components/Explore.js
+import React, { useState, useEffect } from 'react';
+import { collection, query, where, getDocs, onSnapshot, addDoc, orderBy } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { TextField, Button, Card, CardContent, Typography, List, ListItem, ListItemText } from '@mui/material';
+import Stories from 'react-insta-stories';
+import moment from 'moment';
+
+const Explore = () => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [providers, setProviders] = useState([]);
+  const [selectedProvider, setSelectedProvider] = useState(null);
+  const [stories, setStories] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [selectedPostId, setSelectedPostId] = useState(null);
+
+  // Fetch providers based on search
+  useEffect(() => {
+    const fetchProviders = async () => {
+      const q = query(collection(db, 'users'), where('isProvider', '==', true));
+      const querySnapshot = await getDocs(q);
+      let providerList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      if (searchTerm) {
+        providerList = providerList.filter(p => 
+          `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      }
+      setProviders(providerList);
+    };
+    fetchProviders();
+  }, [searchTerm]);
+
+  // Fetch stories and posts for selected provider
+  useEffect(() => {
+    if (!selectedProvider) return;
+
+    // Stories: Assume 'stories' collection with providerId, and items array of {url, type: 'image' or 'video'}
+    const storiesQuery = query(
+      collection(db, 'stories'),
+      where('providerId', '==', selectedProvider.id),
+      where('timestamp', '>', moment().subtract(24, 'hours').toDate()) // Ephemeral: last 24 hours
+    );
+    const unsubscribeStories = onSnapshot(storiesQuery, (snap) => {
+      const storyItems = snap.docs.flatMap(doc => doc.data().items || []);
+      setStories(storyItems);
+    });
+
+    // Posts: Assume 'posts' collection with providerId
+    const postsQuery = query(
+      collection(db, 'posts'),
+      where('providerId', '==', selectedProvider.id),
+      orderBy('timestamp', 'desc')
+    );
+    const unsubscribePosts = onSnapshot(postsQuery, (snap) => {
+      const postList = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), comments: [] }));
+      setPosts(postList);
+
+      // Fetch comments for each post
+      postList.forEach(post => {
+        const commentsQuery = query(collection(db, `posts/${post.id}/comments`), orderBy('timestamp', 'asc'));
+        onSnapshot(commentsQuery, (commentSnap) => {
+          const comments = commentSnap.docs.map(c => c.data());
+          setPosts(prev => prev.map(p => p.id === post.id ? { ...p, comments } : p));
+        });
+      });
+    });
+
+    return () => {
+      unsubscribeStories();
+      unsubscribePosts();
+    };
+  }, [selectedProvider]);
+
+  const handleSearch = (e) => {
+    setSearchTerm(e.target.value);
+  };
+
+  const handleSelectProvider = (provider) => {
+    setSelectedProvider(provider);
+  };
+
+  const handleAddComment = async (postId) => {
+    if (!newComment || !auth.currentUser) return;
+    await addDoc(collection(db, `posts/${postId}/comments`), {
+      userId: auth.currentUser.uid,
+      text: newComment,
+      timestamp: new Date(),
+    });
+    setNewComment('');
+  };
+
+  return (
+    <div>
+      <h1>Explore Services</h1>
+      <TextField 
+        label="Search for Creators" 
+        value={searchTerm} 
+        onChange={handleSearch} 
+        fullWidth 
+        style={{ marginBottom: '20px' }} 
+      />
+      <Typography variant="h6">Providers</Typography>
+      <List>
+        {providers.map(provider => (
+          <ListItem 
+            button 
+            key={provider.id} 
+            onClick={() => handleSelectProvider(provider)}
+          >
+            <ListItemText primary={`${provider.firstName} ${provider.lastName}`} />
+          </ListItem>
+        ))}
+      </List>
+
+      {selectedProvider && (
+        <>
+          <Typography variant="h5">{selectedProvider.firstName}'s Content</Typography>
+          
+          {/* Stories */}
+          {stories.length > 0 && (
+            <div style={{ margin: '20px 0' }}>
+              <Typography variant="h6">Stories</Typography>
+              <Stories 
+                stories={stories.map(s => ({ url: s.url, type: s.type || 'image' }))} 
+                defaultInterval={5000} 
+                width={360} 
+                height={640} 
+              />
+            </div>
+          )}
+
+          {/* Posts */}
+          <Typography variant="h6">Posts</Typography>
+          {posts.map(post => (
+            <Card key={post.id} style={{ margin: '10px 0' }}>
+              <CardContent>
+                <Typography variant="body1">{post.content}</Typography>
+                {post.imageUrl && <img src={post.imageUrl} alt="Post" style={{ maxWidth: '100%' }} />}
+                <Typography variant="caption">{moment(post.timestamp.toDate()).format('LLL')}</Typography>
+                
+                {/* Comments */}
+                <List>
+                  {post.comments.map((comment, idx) => (
+                    <ListItem key={idx}>
+                      <ListItemText primary={comment.text} secondary={moment(comment.timestamp.toDate()).format('LLL')} />
+                    </ListItem>
+                  ))}
+                </List>
+                
+                {/* Add Comment */}
+                <TextField 
+                  label="Add Comment" 
+                  value={newComment} 
+                  onChange={(e) => setNewComment(e.target.value)} 
+                  fullWidth 
+                  style={{ marginTop: '10px' }} 
+                />
+                <Button onClick={() => handleAddComment(post.id)}>Post Comment</Button>
+              </CardContent>
+            </Card>
+          ))}
+        </>
+      )}
+    </div>
+  );
+};
+
+export default Explore;
